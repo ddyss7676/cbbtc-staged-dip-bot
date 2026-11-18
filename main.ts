@@ -7,9 +7,9 @@
 //     every batch, keeps the highest close of the last 240 bars (4 hours) as
 //     its reference high, and buys the dip in two stages:
 //       - stage 1: the close falls 1.5% or more below the 240-bar high ->
-//         buy with 20% of equity;
+//         buy with 30% of equity;
 //       - stage 2: the close falls 2.5% or more below the same high -> buy
-//         with 80% of equity (the rest of the cash). The deeper stage takes
+//         with 70% of equity (the rest of the cash). The deeper stage takes
 //         the larger share, because the edge of a dip-buy grows with depth.
 //     A dip is measured against a trailing high, never against a fixed price,
 //     so the same rule arms on any 24-hour window, rising, falling or
@@ -52,9 +52,15 @@ const FRESH_BARS = 60;
 const STAGE_DIPS_BPS = [150n, 250n];
 /** Entry stages: share of equity spent, in bps. The deeper stage takes the
  * larger share: the edge of a dip-buy grows with the depth of the dip. */
-const STAGE_SIZE_BPS = [2000n, 8000n];
-/** Take-profit stages: gain over cost, in bps. */
-const TP_GAIN_BPS = [100n, 220n];
+const STAGE_SIZE_BPS = [3000n, 7000n];
+/** Take-profit stages: gain over cost, in bps. The first take-profit is
+ * quick (+1.0%): it banks seed profit and frees cash for a reload. After a
+ * reload has bought the dip again at a better price, the re-armed first
+ * take-profit demands more (+1.5%), because the bounce after a dip retest
+ * runs further; the second stage (+2.2%) is the same either way. */
+const TP_GAIN_FIRST_BPS = 100n;
+const TP_GAIN_AFTER_RELOAD_BPS = 150n;
+const TP_GAIN_SECOND_BPS = 220n;
 /** Take-profit stages: share of the position sold, in bps. */
 const TP_SELL_BPS = [5000n, 10000n];
 /** Reload: once the first take-profit has banked half the position, a fresh
@@ -80,6 +86,8 @@ class TidepoolDipBot {
   tpStage = 0;
   /** Reloads still allowed in this cycle (re-buys after the first take-profit). */
   reloadsLeft = MAX_RELOADS;
+  /** Whether a reload has filled in this cycle (raises the re-armed TP1). */
+  reloaded = false;
   /** Peak value of the open position since the cycle began, micro-USDC. */
   peakValue: bigint | null = null;
   /** The one order sent on the previous batch, if any: 'buy', 'sell' or 'reload'. */
@@ -133,11 +141,13 @@ class TidepoolDipBot {
       // take-profits re-arm on the blended position; one reload is spent.
       this.reloadsLeft -= 1;
       this.tpStage = 0;
+      this.reloaded = true;
     } else if (side === 'sell') {
       if (qty === 0n) {
         this.stage = 0;
         this.tpStage = 0;
         this.reloadsLeft = MAX_RELOADS;
+        this.reloaded = false;
         this.peakValue = null;
       } else {
         this.tpStage += 1;
@@ -167,7 +177,13 @@ class TidepoolDipBot {
       const cost = held!.cost;
       if (this.peakValue === null || value > this.peakValue) this.peakValue = value;
       let sellFracBps = 0n;
-      if (this.tpStage < TP_GAIN_BPS.length && value * BPS >= cost * (BPS + TP_GAIN_BPS[this.tpStage]!)) {
+      // The first take-profit demands +1.0% normally, +1.5% after a reload
+      // (the re-armed target on the blended, dip-bought cost); the second
+      // stage is always +2.2%.
+      const tpGainBps = this.tpStage === 0
+        ? (this.reloaded ? TP_GAIN_AFTER_RELOAD_BPS : TP_GAIN_FIRST_BPS)
+        : TP_GAIN_SECOND_BPS;
+      if (this.tpStage < TP_SELL_BPS.length && value * BPS >= cost * (BPS + tpGainBps)) {
         sellFracBps = TP_SELL_BPS[this.tpStage]!;
       } else if (value * BPS <= cost * (BPS - STOP_BPS)) {
         sellFracBps = BPS;
