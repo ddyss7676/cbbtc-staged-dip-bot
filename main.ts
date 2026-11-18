@@ -56,10 +56,10 @@ const STAGE_SIZE_BPS = [3000n, 7000n];
 /** Take-profit stages: gain over cost, in bps. The first take-profit is
  * quick (+1.0%): it banks seed profit and frees cash for a reload. After a
  * reload has bought the dip again at a better price, the re-armed first
- * take-profit demands more (+1.8%), because the bounce after a dip retest
+ * take-profit demands more (+2.0%), because the bounce after a dip retest
  * runs further; the second stage (+2.2%) is the same either way. */
 const TP_GAIN_FIRST_BPS = 100n;
-const TP_GAIN_AFTER_RELOAD_BPS = 180n;
+const TP_GAIN_AFTER_RELOAD_BPS = 200n;
 const TP_GAIN_SECOND_BPS = 220n;
 /** Take-profit stages: share of the position sold, in bps. */
 const TP_SELL_BPS = [5000n, 10000n];
