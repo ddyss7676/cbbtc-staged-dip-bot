@@ -16,11 +16,16 @@
 //     because a dip from a fresh high is a pullback, while a decline from a
 //     high set hours ago is a downtrend the bot stays out of.
 //   * Exits are staged too, measured against the position's own cost basis:
-//       - sell half the position once it is worth 1.5% over its cost;
+//       - sell half the position once it is worth 1.0% over its cost;
 //       - sell the rest once it is worth 2.2% over its cost;
 //       - a trailing stop sells everything if the position's value falls
 //         1.2% below its peak since entry while still in profit;
 //       - a stop-loss sells everything if the position falls 4.0% under cost.
+//   * Reload: after the first take-profit banks half the position, a fresh
+//     dip of 2.0% or more below the same reference high buys the freed cash
+//     back in (at most twice per cycle), and the take-profits re-arm on the
+//     blended cost — so a choppy recovery is traded dip by dip instead of
+//     sat through, while the banked profit and the stop-loss cap the risk.
 //   * One order per batch at most, sells decided before buys, and no buy on a
 //     batch where a sell was just sent (a sell's proceeds never fund a buy of
 //     the same reply, and a full exit is never re-bought on the same bar).
@@ -47,9 +52,15 @@ const STAGE_DIPS_BPS = [150n, 250n];
 /** Entry stages: share of equity spent, in bps. */
 const STAGE_SIZE_BPS = [3000n, 7000n];
 /** Take-profit stages: gain over cost, in bps. */
-const TP_GAIN_BPS = [150n, 220n];
+const TP_GAIN_BPS = [100n, 220n];
 /** Take-profit stages: share of the position sold, in bps. */
 const TP_SELL_BPS = [5000n, 10000n];
+/** Reload: once the first take-profit has banked half the position, a fresh
+ * dip of this size below the reference high buys the freed cash back in.
+ * Share of equity spent per reload, and how many reloads one cycle allows. */
+const RELOAD_DIP_BPS = 200n;
+const RELOAD_SIZE_BPS = 5000n;
+const MAX_RELOADS = 2;
 /** Trailing stop: sell all if the position value falls this far below its peak since entry, while still above cost. */
 const TRAIL_BPS = 120n;
 /** Stop-loss: sell all this far under cost. */
@@ -65,10 +76,12 @@ class TidepoolDipBot {
   stage = 0;
   /** Next take-profit level to fire (0, 1, or 2 when fully exited). */
   tpStage = 0;
+  /** Reloads still allowed in this cycle (re-buys after the first take-profit). */
+  reloadsLeft = MAX_RELOADS;
   /** Peak value of the open position since the cycle began, micro-USDC. */
   peakValue: bigint | null = null;
-  /** The one order sent on the previous batch, if any: 'buy' or 'sell'. */
-  pending: 'buy' | 'sell' | null = null;
+  /** The one order sent on the previous batch, if any: 'buy', 'sell' or 'reload'. */
+  pending: 'buy' | 'sell' | 'reload' | null = null;
   /** Position quantity after the previous batch, to reconcile fills. */
   prevQty = 0n;
 
@@ -113,10 +126,16 @@ class TidepoolDipBot {
     if (qty === this.prevQty) return; // the order was rejected: retry later
     if (side === 'buy') {
       this.stage += 1;
+    } else if (side === 'reload') {
+      // A re-buy after the first take-profit: the cost basis blends, so the
+      // take-profits re-arm on the blended position; one reload is spent.
+      this.reloadsLeft -= 1;
+      this.tpStage = 0;
     } else if (side === 'sell') {
       if (qty === 0n) {
         this.stage = 0;
         this.tpStage = 0;
+        this.reloadsLeft = MAX_RELOADS;
         this.peakValue = null;
       } else {
         this.tpStage += 1;
@@ -182,6 +201,30 @@ class TidepoolDipBot {
             const buy: BuyInput = { side: 'buy', symbol: SYMBOL, notional_quote_units: spend, max_slippage_bps: MAX_SLIPPAGE_BPS };
             orders.push(buy);
             this.pending = 'buy';
+            this.prevQty = qty;
+          }
+        }
+      }
+    } else if (this.tpStage === 1 && this.reloadsLeft > 0 && qty > 0n) {
+      // Reload: the first take-profit banked half the position; a fresh dip
+      // below the same reference high buys the freed cash back in, and the
+      // take-profits re-arm on the blended cost. The dip is measured against
+      // the cycle's reference high, not a fresh one: the chop after a bounce
+      // retests the same high, and the banked profit plus the stop-loss cap
+      // the downside of re-adding there.
+      const high = this.referenceHigh();
+      const close = state.close(SYMBOL);
+      if (high !== null && close !== null && high > 0n) {
+        const dipBps = high > close ? ((high - close) * BPS) / high : 0n;
+        if (dipBps >= RELOAD_DIP_BPS) {
+          let spend = (state.equity * RELOAD_SIZE_BPS) / BPS;
+          const room = state.weightRoom(SYMBOL);
+          if (spend > room) spend = room;
+          if (spend > state.cash) spend = state.cash;
+          if (spend >= BigInt(state.hello.fees.min_notional_quote_units)) {
+            const buy: BuyInput = { side: 'buy', symbol: SYMBOL, notional_quote_units: spend, max_slippage_bps: MAX_SLIPPAGE_BPS };
+            orders.push(buy);
+            this.pending = 'reload';
             this.prevQty = qty;
           }
         }
