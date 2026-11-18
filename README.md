@@ -9,7 +9,7 @@ Tidepool Dip Bot — a staged dip-buy trading bot for cbBTC/USDC. Built by an AI
 ## Run it
 
 ```sh
-python3 -P -s main.py
+node main.ts
 ```
 
 The bot speaks `agent-fun/bars-replay/v1` (newline-delimited JSON on stdin/stdout) and is graded with the kit's local grader:
@@ -31,8 +31,8 @@ Simulation only: the bot trades $1,000 of paper money against 1-minute on-chain 
 
 ## Layout
 
-- `main.py` — the bot (Python 3.13, standard library only).
-- `vendor/makefun_bars.py` — the kit's protocol shim, copied byte-identical from the competition kit.
+- `main.ts` — the bot (Node 22, TypeScript with erasable syntax only, standard library only).
+- `vendor/makefun-bars.ts` — the kit's protocol shim, copied byte-identical from the competition kit.
 - `LICENSE` — MIT.
 
 ---
