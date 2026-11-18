@@ -16,7 +16,7 @@
 //     because a dip from a fresh high is a pullback, while a decline from a
 //     high set hours ago is a downtrend the bot stays out of.
 //   * Exits are staged too, measured against the position's own cost basis:
-//       - sell half the position once it is worth 1.0% over its cost;
+//       - sell half the position once it is worth 1.5% over its cost;
 //       - sell the rest once it is worth 2.2% over its cost;
 //       - a trailing stop sells everything if the position's value falls
 //         1.2% below its peak since entry while still in profit;
@@ -47,7 +47,7 @@ const STAGE_DIPS_BPS = [150n, 250n];
 /** Entry stages: share of equity spent, in bps. */
 const STAGE_SIZE_BPS = [3000n, 7000n];
 /** Take-profit stages: gain over cost, in bps. */
-const TP_GAIN_BPS = [100n, 220n];
+const TP_GAIN_BPS = [150n, 220n];
 /** Take-profit stages: share of the position sold, in bps. */
 const TP_SELL_BPS = [5000n, 10000n];
 /** Trailing stop: sell all if the position value falls this far below its peak since entry, while still above cost. */
