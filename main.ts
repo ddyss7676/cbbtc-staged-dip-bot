@@ -12,7 +12,9 @@
 //         with 70% of equity (the rest of the cash).
 //     A dip is measured against a trailing high, never against a fixed price,
 //     so the same rule arms on any 24-hour window, rising, falling or
-//     chopping.
+//     chopping. The high must also be fresh — set within the last 60 bars —
+//     because a dip from a fresh high is a pullback, while a decline from a
+//     high set hours ago is a downtrend the bot stays out of.
 //   * Exits are staged too, measured against the position's own cost basis:
 //       - sell half the position once it is worth 1.0% over its cost;
 //       - sell the rest once it is worth 2.2% over its cost;
@@ -38,6 +40,8 @@ import { runBars, type BarsState, type Batch, type BuyInput, type OrderInput, ty
 const SYMBOL = 'CBBTC';
 /** Reference high: the highest close of the last 240 bars (4 hours). */
 const HIGH_BARS = 240;
+/** Freshness window: the reference high must have been set within these bars. */
+const FRESH_BARS = 60;
 /** Entry stages: dip below the reference high, in bps. */
 const STAGE_DIPS_BPS = [150n, 250n];
 /** Entry stages: share of equity spent, in bps. */
@@ -75,6 +79,20 @@ class TidepoolDipBot {
     let high = window[0]!;
     for (const c of window) if (c > high) high = c;
     return high;
+  }
+
+  /**
+   * Whether the reference high is fresh: the highest close of the last 60
+   * bars equals the 240-bar high, so the high was set within the last hour.
+   * A dip from a fresh high is a pullback (the setup this bot trades); a
+   * decline from a high set hours ago is a downtrend, and the bot stays out.
+   */
+  highIsFresh(): boolean {
+    const recent = this.closes.slice(-FRESH_BARS);
+    if (recent.length === 0) return false;
+    let highRecent = recent[0]!;
+    for (const c of recent) if (c > highRecent) highRecent = c;
+    return highRecent === this.referenceHigh();
   }
 
   /**
@@ -153,7 +171,7 @@ class TidepoolDipBot {
     if (this.stage < STAGE_DIPS_BPS.length) {
       const high = this.referenceHigh();
       const close = state.close(SYMBOL);
-      if (high !== null && close !== null && high > 0n) {
+      if (high !== null && close !== null && high > 0n && this.highIsFresh()) {
         const dipBps = high > close ? ((high - close) * BPS) / high : 0n;
         if (dipBps >= STAGE_DIPS_BPS[this.stage]!) {
           let spend = (state.equity * STAGE_SIZE_BPS[this.stage]!) / BPS;
