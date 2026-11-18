@@ -7,9 +7,10 @@
 //     every batch, keeps the highest close of the last 240 bars (4 hours) as
 //     its reference high, and buys the dip in two stages:
 //       - stage 1: the close falls 1.5% or more below the 240-bar high ->
-//         buy with 30% of equity;
+//         buy with 20% of equity;
 //       - stage 2: the close falls 2.5% or more below the same high -> buy
-//         with 70% of equity (the rest of the cash).
+//         with 80% of equity (the rest of the cash). The deeper stage takes
+//         the larger share, because the edge of a dip-buy grows with depth.
 //     A dip is measured against a trailing high, never against a fixed price,
 //     so the same rule arms on any 24-hour window, rising, falling or
 //     chopping. The high must also be fresh — set within the last 60 bars —
@@ -49,8 +50,9 @@ const HIGH_BARS = 240;
 const FRESH_BARS = 60;
 /** Entry stages: dip below the reference high, in bps. */
 const STAGE_DIPS_BPS = [150n, 250n];
-/** Entry stages: share of equity spent, in bps. */
-const STAGE_SIZE_BPS = [3000n, 7000n];
+/** Entry stages: share of equity spent, in bps. The deeper stage takes the
+ * larger share: the edge of a dip-buy grows with the depth of the dip. */
+const STAGE_SIZE_BPS = [2000n, 8000n];
 /** Take-profit stages: gain over cost, in bps. */
 const TP_GAIN_BPS = [100n, 220n];
 /** Take-profit stages: share of the position sold, in bps. */
